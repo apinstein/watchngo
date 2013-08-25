@@ -1,0 +1,128 @@
+<?php
+
+if (!extension_loaded('inotify')) throw new Exception("Please install inotify: pecl install inotify");
+
+$inotifyR = inotify_init();
+if ($inotifyR === false) throw new Exception("inotify_init failed");
+
+$config = array(
+    'App 1 Coffeescript' => array(
+        'monitor'        => glob('js-apps/tourbuilder/src/**/*.coffee'),
+        'perform'        => 'rake app1:coffeescript:build',
+        'triggerOnStart' => false,
+    ),
+    'App 1 Compass' => array(
+        'monitor'        => glob('modules/public/vtour/skins/mobile2/**/*'),
+        'perform'        => 'rake app1:compass:build',
+        'triggerOnStart' => false,
+    ),
+);
+
+print "Parsing config...\n";
+$manager = array();
+$watchIdToConfigIdMap = array();
+$watchIdToPathMap = array();
+foreach ($config as $id => $c) {
+    print " => {$id}\n";
+    $manager[$id] = array(
+        'monitor'  => is_array($c['monitor']) ? $c['monitor'] : array($c['monitor']),
+        'perform'  => $c['perform'],
+        'debounce' => 2000 / 1000,
+        'lastDts'  => $c['triggerOnStart'] ? 0 : NULL,
+    );
+}
+
+print "Installing watches...\n";
+foreach ($manager as $id => $c) {
+    foreach ($c['monitor'] as $f) {
+        $watchId = inotify_add_watch($inotifyR, $f, IN_MODIFY | IN_CLOSE_WRITE | IN_CREATE | IN_DELETE | IN_MOVED_TO | IN_MOVED_FROM);
+        $watchIdToConfigIdMap[$watchId] = $id;
+        $watchIdToPathMap[$watchId] = $f;
+    }
+}
+
+print "Staring monitoring...\n";
+stream_set_blocking($inotifyR, 0);
+while (true) {
+    $events = inotify_read($inotifyR);
+    if ($events === false)
+    {
+        checkDebounce($manager);
+        sleep(2);
+        continue;
+    }
+
+    $now = microtime(true);
+    foreach ($events as $event) {
+        $watchId = $event['wd'];
+        $configId = $watchIdToConfigIdMap[$watchId];
+        $manager[$configId]['lastDts'] = $now;
+
+        logEvent($event, $watchId, $watchIdToPathMap);
+    }
+    checkDebounce($manager);
+}
+
+function checkDebounce(&$manager)
+{
+    print '.';
+
+    // check for debounce timeouts
+    $now = microtime(true);
+    foreach ($manager as $id => $c) {
+        if ($c['lastDts'] === NULL)
+        {
+            continue;
+        }
+
+        $tdiff = $now - $c['lastDts'];
+        if ($tdiff > $c['debounce'])
+        {
+            print "\n";
+            fire($manager, $id);
+        }
+    }
+}
+
+function fire(&$manager, $id)
+{
+    print "[{$id}] {$manager[$id]['perform']}\n";
+    print `{$manager[$id]['perform']}`;
+    $manager[$id]['lastDts'] = NULL;
+}
+
+function logEvent($event, $watchId, $watchIdToPathMap)
+{
+    return;
+
+    $in_events = array(
+        'IN_ACCESS' => IN_ACCESS,
+        'IN_MODIFY' => IN_MODIFY,
+        'IN_ATTRIB' => IN_ATTRIB,
+        'IN_CLOSE_WRITE' => IN_CLOSE_WRITE,
+        'IN_CLOSE_NOWRITE' => IN_CLOSE_NOWRITE,
+        'IN_OPEN' => IN_OPEN,
+        'IN_MOVED_TO' => IN_MOVED_TO,
+        'IN_MOVED_FROM' => IN_MOVED_FROM,
+        'IN_CREATE' => IN_CREATE,
+        'IN_DELETE' => IN_DELETE,
+        'IN_DELETE_SELF' => IN_DELETE_SELF,
+        'IN_MOVE_SELF' => IN_MOVE_SELF,
+        'IN_CLOSE' => IN_CLOSE,
+        'IN_MOVE' => IN_MOVE,
+        'IN_ALL_EVENTS' => IN_ALL_EVENTS,
+        'IN_UNMOUNT' => IN_UNMOUNT,
+        'IN_Q_OVERFLOW' => IN_Q_OVERFLOW,
+        'IN_IGNORED' => IN_IGNORED,
+        'IN_ISDIR' => IN_ISDIR,
+        'IN_ONLYDIR' => IN_ONLYDIR,
+        'IN_DONT_FOLLOW' => IN_DONT_FOLLOW,
+        'IN_MASK_ADD' => IN_MASK_ADD,
+        'IN_ONESHOT' => IN_ONESHOT,
+    );
+
+    print "{$watchIdToPathMap[$watchId]}:\n";
+    foreach ($in_events as $str => $val) {
+        if ($event['mask'] & $val) print "  => {$str}\n";
+    }
+}
