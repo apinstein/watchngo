@@ -1,22 +1,15 @@
+#!/usr/bin/env php
 <?php
+/* vim: set expandtab tabstop=4 shiftwidth=4 filetype=php: */
 
 if (!extension_loaded('inotify')) throw new Exception("Please install inotify: pecl install inotify");
 
 $inotifyR = inotify_init();
 if ($inotifyR === false) throw new Exception("inotify_init failed");
 
-$config = array(
-    'App 1 Coffeescript' => array(
-        'monitor'        => glob('js-apps/tourbuilder/src/**/*.coffee'),
-        'perform'        => 'rake app1:coffeescript:build',
-        'triggerOnStart' => false,
-    ),
-    'App 1 Compass' => array(
-        'monitor'        => glob('modules/public/vtour/skins/mobile2/**/*'),
-        'perform'        => 'rake app1:compass:build',
-        'triggerOnStart' => false,
-    ),
-);
+if (!file_exists('watchngo.config')) throw new Exception("No watchngo.config");
+include 'watchngo.config';
+if (!isset($config)) throw new Exception('No $config in watchngo.config');
 
 print "Parsing config...\n";
 $manager = array();
@@ -126,3 +119,46 @@ function logEvent($event, $watchId, $watchIdToPathMap)
         if ($event['mask'] & $val) print "  => {$str}\n";
     }
 }
+
+function recursive_glob($requestedGlobs)
+{
+    if (!is_array($requestedGlobs))
+    {
+        $requestedGlobs = array($requestedGlobs);
+    }
+
+    $globsToProcess = array();
+
+    // expand all a/b/**/c/*.foo into globs
+    foreach ($requestedGlobs as $glob) {
+        $hasRecursiveDirGlob = (strpos($glob, '**') !== -1);
+        if ($hasRecursiveDirGlob)
+        {
+            list($baseDir, $subGlob) = explode('**', $glob, 2);
+            $baseDir = rtrim($baseDir, '/');
+            $subGlob = ltrim($subGlob, '/');
+            $rDirIterator = new RecursiveDirectoryIterator($baseDir);
+            $itIterator = new RecursiveIteratorIterator($rDirIterator, RecursiveIteratorIterator::CHILD_FIRST);
+            foreach ($itIterator as $path => $fileInfo) {
+                if ($itIterator->getInnerIterator()->isDot()) continue;
+                if ($itIterator->getInnerIterator()->isFile()) continue;
+
+                $globsToProcess[] = "{$path}/{$subGlob}";
+            }
+        }
+        else
+        {
+            $globsToProcess[] = $glob;
+        }
+    }
+
+    $matches = array();
+    $globsToProcess = array_unique($globsToProcess);
+    foreach ($globsToProcess as $glob) {
+        $matches = array_merge($matches, glob($glob));
+    }
+
+    $matches = array_unique($matches);
+    return $matches;
+}
+
