@@ -20,7 +20,7 @@ foreach ($config as $id => $c) {
     $manager[$id] = array(
         'monitor'  => is_array($c['monitor']) ? $c['monitor'] : array($c['monitor']),
         'perform'  => $c['perform'],
-        'debounce' => 2000 / 1000,
+        'debounce' => 500 / 1000,
         'lastDts'  => $c['triggerOnStart'] ? 0 : NULL,
     );
 }
