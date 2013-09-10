@@ -137,6 +137,10 @@ function recursive_glob($requestedGlobs)
             list($baseDir, $subGlob) = explode('**', $glob, 2);
             $baseDir = rtrim($baseDir, '/');
             $subGlob = ltrim($subGlob, '/');
+
+            // root glob
+            $globsToProcess[] = "{$baseDir}/{$subGlob}";
+
             $rDirIterator = new RecursiveDirectoryIterator($baseDir);
             $itIterator = new RecursiveIteratorIterator($rDirIterator, RecursiveIteratorIterator::CHILD_FIRST);
             foreach ($itIterator as $path => $fileInfo) {
