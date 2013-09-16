@@ -15,8 +15,13 @@ print "Parsing config...\n";
 $manager = array();
 $watchIdToConfigIdMap = array();
 $watchIdToPathMap = array();
+$i = 1;
+$triggerFullMap = array();
 foreach ($config as $id => $c) {
-    print " => {$id}\n";
+    print " [{$i}] => {$id}\n";
+    $triggerFullMap["{$i}"] = $id;
+    $i++;
+
     $manager[$id] = array(
         'monitor'  => is_array($c['monitor']) ? $c['monitor'] : array($c['monitor']),
         'perform'  => $c['perform'],
@@ -24,11 +29,18 @@ foreach ($config as $id => $c) {
         'lastDts'  => $c['triggerOnStart'] ? 0 : NULL,
     );
 }
+print <<<EOL
 
-print "Installing watches...\n";
+Want to manually trigger a rebuild?
+=> RETURN to rebuild all
+=> ID from above to trigger individual module
+
+EOL;
+
+print PHP_EOL . "Installing watches...\n";
 foreach ($manager as $id => $c) {
     foreach ($c['monitor'] as $f) {
-        $watchId = inotify_add_watch($inotifyR, $f, IN_MODIFY | IN_CLOSE_WRITE | IN_CREATE | IN_DELETE | IN_MOVED_TO | IN_MOVED_FROM);
+        $watchId = inotify_add_watch($inotifyR, $f, IN_MODIFY | IN_ATTRIB | IN_CLOSE_WRITE | IN_CREATE | IN_DELETE | IN_MOVED_TO | IN_MOVED_FROM);   // IN_ATTRIB gets php::touch()
         $watchIdToConfigIdMap[$watchId] = $id;
         $watchIdToPathMap[$watchId] = $f;
     }
@@ -36,12 +48,49 @@ foreach ($manager as $id => $c) {
 
 print "Staring monitoring...\n";
 stream_set_blocking($inotifyR, 0);
+
+// watch STDIN for input related to manual rebuilds
+$stdin = fopen('php://stdin', 'r');
+$oldStty = `stty -g`;
+system("stty -icanon");
+stream_set_blocking($stdin, 0);
+
 while (true) {
+    // watch for numeric input to run specific IDs
+    $readId = fread($stdin, 10);
+    if ($readId !== false and !empty($readId))
+    {
+        $manualRecompileList = array();
+        if ($readId === PHP_EOL)
+        {
+            print PHP_EOL . "=> REBUILD ALL" . PHP_EOL;
+            $manualRecompileList = array_values($triggerFullMap);
+        }
+        else
+        {
+            $readId = trim($readId);
+            if (isset($triggerFullMap[$readId]))
+            {
+                print PHP_EOL . "=> [{$readId}] TRIGGER {$triggerFullMap[$readId]}" . PHP_EOL;
+                $manualRecompileList[] = $triggerFullMap[$readId];
+            }
+            else
+            {
+                print PHP_EOL . "=> NO MATCH {$readId}" . PHP_EOL;
+            }
+        }
+        foreach ($manualRecompileList as $managerId) {
+            // touch all to ensure rebuild doesn't just say "unchanged" (i'm looking at you, compass)
+            $res = array_map('touch', $manager[$managerId]['monitor']);
+            fire($manager, $managerId);
+        }
+    }
+
     $events = inotify_read($inotifyR);
     if ($events === false)
     {
         checkDebounce($manager);
-        sleep(2);
+        sleep(1);
         continue;
     }
 
@@ -55,6 +104,7 @@ while (true) {
     }
     checkDebounce($manager);
 }
+system("stty {$oldStty}");
 
 function checkDebounce(&$manager)
 {
