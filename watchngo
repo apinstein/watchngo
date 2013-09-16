@@ -120,18 +120,27 @@ function logEvent($event, $watchId, $watchIdToPathMap)
     }
 }
 
+/**
+ * @param mixed VARGS: any number of strings or arrays, each being a file path or a glob to watch.
+ * @return array The set of files matches the passed globs.
+ */
 function recursive_glob($requestedGlobs)
 {
-    if (!is_array($requestedGlobs))
-    {
-        $requestedGlobs = array($requestedGlobs);
+    // expoode vargs
+    $requestedGlobs = array();
+    foreach (func_get_args() as $arg) {
+        if (!is_array($arg))
+        {
+            $arg = array($arg);
+        }
+        $requestedGlobs = array_merge($requestedGlobs, $arg);
     }
-
-    $globsToProcess = array();
+    $requestedGlobs = array_unique($requestedGlobs);
 
     // expand all a/b/**/c/*.foo into globs
+    $globsToProcess = array();
     foreach ($requestedGlobs as $glob) {
-        $hasRecursiveDirGlob = (strpos($glob, '**') !== -1);
+        $hasRecursiveDirGlob = (strpos($glob, '**') !== false);
         if ($hasRecursiveDirGlob)
         {
             list($baseDir, $subGlob) = explode('**', $glob, 2);
@@ -144,7 +153,7 @@ function recursive_glob($requestedGlobs)
             $rDirIterator = new RecursiveDirectoryIterator($baseDir);
             $itIterator = new RecursiveIteratorIterator($rDirIterator, RecursiveIteratorIterator::CHILD_FIRST);
             foreach ($itIterator as $path => $fileInfo) {
-                if ($itIterator->getInnerIterator()->isDot()) continue;
+                if ($itIterator->getInnerIterator()->isDot())  continue;
                 if ($itIterator->getInnerIterator()->isFile()) continue;
 
                 $globsToProcess[] = "{$path}/{$subGlob}";
