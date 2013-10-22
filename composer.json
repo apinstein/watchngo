@@ -1,0 +1,19 @@
+{
+    "name": "apinstein/watchngo",
+    "type": "library",
+    "description": "A php-native inotify-based file watcher to easily trigger compilation. Debounces and coalesces changes to multiple files related to the same desired action.",
+    "keywords": ["watcher"],
+    "homepage": "http://github.com/apinstein/watchngo",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Alan Pinstein",
+            "email": "apinstein@mac.com",
+            "role": "Developer"
+        }
+    ],
+    "require": {
+        "php": ">=5.2.0"
+    },
+    "bin": ["watchngo"]
+}
